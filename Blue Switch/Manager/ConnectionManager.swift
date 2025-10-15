@@ -1,5 +1,5 @@
 import Network
-import SwiftUICore
+import SwiftUI
 
 /// Protocol defining the interface for managing network connections
 protocol NetworkConnectionManaging {
