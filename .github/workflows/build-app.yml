@@ -1,0 +1,40 @@
+name: Build App
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Archive (unsigned)
+        run: |
+          xcodebuild clean archive \
+            -project "Blue Switch.xcodeproj" \
+            -scheme "Blue Switch" \
+            -configuration Release \
+            -archivePath "$RUNNER_TEMP/Blue Switch.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Package App
+        run: |
+          APP_PATH="$RUNNER_TEMP/Blue Switch.xcarchive/Products/Applications/Blue Switch.app"
+          ZIP_PATH="$RUNNER_TEMP/Blue Switch.app.zip"
+
+          test -d "$APP_PATH"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
+          shasum -a 256 "$ZIP_PATH" > "$RUNNER_TEMP/Blue Switch.app.zip.sha256"
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: blue-switch-build
+          path: |
+            ${{ runner.temp }}/Blue Switch.app.zip
+            ${{ runner.temp }}/Blue Switch.app.zip.sha256
