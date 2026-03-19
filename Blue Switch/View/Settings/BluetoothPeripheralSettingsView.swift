@@ -5,6 +5,7 @@ struct BluetoothPeripheralSettingsView: View {
   // MARK: - Dependencies
 
   @StateObject private var bluetoothStore = BluetoothPeripheralStore.shared
+  @State private var refreshTimer: Timer?
 
   // MARK: - Constants
 
@@ -34,6 +35,7 @@ struct BluetoothPeripheralSettingsView: View {
       )
     }
     .onAppear(perform: handleOnAppear)
+    .onDisappear(perform: handleOnDisappear)
   }
 
   var body: some View {
@@ -52,6 +54,7 @@ struct BluetoothPeripheralSettingsView: View {
     } else {
       bluetoothStore.connectPeripheral(peripheral)
     }
+    bluetoothStore.refreshPeripheralState()
   }
 
   private func handlePeripheralRemove(_ peripheral: BluetoothPeripheral) {
@@ -63,7 +66,20 @@ struct BluetoothPeripheralSettingsView: View {
   }
 
   private func handleOnAppear() {
-    bluetoothStore.fetchConnectedPeripherals()
+    bluetoothStore.refreshPeripheralState()
+    startRefreshTimer()
+  }
+
+  private func handleOnDisappear() {
+    refreshTimer?.invalidate()
+    refreshTimer = nil
+  }
+
+  private func startRefreshTimer() {
+    refreshTimer?.invalidate()
+    refreshTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+      bluetoothStore.refreshPeripheralState()
+    }
   }
 }
 

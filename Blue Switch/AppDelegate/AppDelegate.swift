@@ -16,6 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   // MARK: - Constants
 
   private let windowSize = NSSize(width: 480, height: 300)
+  private let handoffSettleDelay: TimeInterval = 0.75
+  private var isSwitchInProgress = false
 
   // MARK: - Lifecycle Methods
 
@@ -74,6 +76,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func handleLeftClick() {
+    guard !isSwitchInProgress else {
+      NotificationManager.showNotification(
+        title: "Switch In Progress",
+        body: "Please wait for the current handoff to finish."
+      )
+      return
+    }
+
     guard let targetDevice = networkStore.networkDevices.first else {
       NotificationManager.showNotification(
         title: "Error",
@@ -82,6 +92,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       return
     }
 
+    guard !bluetoothStore.peripherals.isEmpty else {
+      NotificationManager.showNotification(
+        title: "Error",
+        body: "No registered peripherals found. Add a device in Settings > Peripheral."
+      )
+      return
+    }
+
+    isSwitchInProgress = true
+    print("Starting handoff to \(targetDevice.name). Local state: \(bluetoothStore.checkActualConnectionStatus())")
+
     targetDevice.checkHealth { [weak self] result in
       guard let self = self else { return }
 
@@ -89,41 +110,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       case .success:
         switch bluetoothStore.checkActualConnectionStatus() {
         case .allConnected:
-          // 1. Execute disconnection of all devices
-          self.bluetoothStore.peripherals.forEach { peripheral in
-            self.bluetoothStore.unregisterFromPC(peripheral)
-          }
-
-          // 2. Send connection request after confirming disconnection
-          self.waitForDisconnection { allDisconnected in
-            if allDisconnected {
-              self.networkStore.executeCommand(.connectAll) { success in
-                if !success {
-                  NotificationManager.showNotification(
-                    title: "Error",
-                    body: "Connection process failed on target device"
-                  )
+          print("Local peripherals are connected. Disconnecting locally before remote connect.")
+          self.bluetoothStore.disconnectPeripheralsForHandoff(self.bluetoothStore.peripherals) {
+            disconnectSuccess in
+            if disconnectSuccess {
+              self.runAfterHandoffSettleDelay {
+                print("Local disconnect completed. Requesting remote connect on \(targetDevice.name).")
+                self.networkStore.executeCommand(.connectAll) { success in
+                  if success {
+                    print("Remote connect completed successfully on \(targetDevice.name)")
+                  } else {
+                    NotificationManager.showNotification(
+                      title: "Error",
+                      body: "Connection process failed on target device"
+                    )
+                  }
+                  self.finishSwitchAttempt()
                 }
               }
             } else {
               NotificationManager.showNotification(
                 title: "Error",
-                body: "Failed to disconnect devices"
+                body: "Failed to disconnect devices for handoff"
               )
+              self.finishSwitchAttempt()
             }
           }
         case .allDisconnected:
-          // 1. Request disconnect from peer and connect self
+          print("Local peripherals are disconnected. Requesting remote disconnect before local connect.")
           self.networkStore.executeCommand(.unregisterAll) { success in
             if success {
-              self.bluetoothStore.peripherals.forEach { peripheral in
-                self.bluetoothStore.connectPeripheral(peripheral)
+              self.runAfterHandoffSettleDelay {
+                print("Remote disconnect completed. Connecting peripherals locally.")
+                self.bluetoothStore.connectPeripheralsForHandoff(self.bluetoothStore.peripherals) {
+                  connectSuccess in
+                  if !connectSuccess {
+                    NotificationManager.showNotification(
+                      title: "Error",
+                      body: "Failed to connect peripherals on this Mac"
+                    )
+                  }
+                  self.finishSwitchAttempt()
+                }
               }
             } else {
               NotificationManager.showNotification(
                 title: "Error",
                 body: "Failed to request device disconnection from peer"
               )
+              self.finishSwitchAttempt()
             }
           }
         case .partial:
@@ -132,6 +167,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             body:
               "Some devices are connected while others are disconnected. Please ensure all devices are in the same state."
           )
+          self.finishSwitchAttempt()
         }
 
       case .failure(let error):
@@ -139,14 +175,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
           title: "Error",
           body: "Failed to communicate with device: \(error)"
         )
+        self.finishSwitchAttempt()
 
       case .timeout:
         NotificationManager.showNotification(
           title: "Error",
           body: "No response from device. Please check if the app is running."
         )
+        self.finishSwitchAttempt()
       }
     }
+  }
+
+  private func finishSwitchAttempt() {
+    isSwitchInProgress = false
+    bluetoothStore.refreshPeripheralState()
+  }
+
+  private func runAfterHandoffSettleDelay(_ action: @escaping () -> Void) {
+    DispatchQueue.main.asyncAfter(deadline: .now() + handoffSettleDelay, execute: action)
   }
 
   /// Waits for all devices to disconnect with a timeout

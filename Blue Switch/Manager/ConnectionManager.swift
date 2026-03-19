@@ -206,20 +206,24 @@ final class ConnectionManager: NetworkConnectionManaging {
       // Wait for the next message which will contain notification data
       break
     case .connectAll:
-      // Execute device connection
-      bluetoothStore.peripherals.forEach { peripheral in
-        bluetoothStore.connectPeripheral(peripheral)
+      print("Received CONNECT_ALL command")
+      bluetoothStore.connectPeripheralsForHandoff(bluetoothStore.peripherals) { [weak self] success in
+        guard let self = self else { return }
+        let response = success ? DeviceCommand.operationSuccess : DeviceCommand.operationFailed
+        print("CONNECT_ALL completed with success=\(success)")
+        self.lastReceivedCommand = nil
+        self.send(message: response.rawValue, to: connection)
       }
-      // Send success response
-      send(message: DeviceCommand.operationSuccess.rawValue, to: connection)
 
     case .unregisterAll:
-      // Execute device disconnection
-      bluetoothStore.peripherals.forEach { peripheral in
-        bluetoothStore.unregisterFromPC(peripheral)
+      print("Received UNREGISTER_ALL command")
+      bluetoothStore.disconnectPeripheralsForHandoff(bluetoothStore.peripherals) { [weak self] success in
+        guard let self = self else { return }
+        let response = success ? DeviceCommand.operationSuccess : DeviceCommand.operationFailed
+        print("UNREGISTER_ALL completed with success=\(success)")
+        self.lastReceivedCommand = nil
+        self.send(message: response.rawValue, to: connection)
       }
-      // Send success response
-      send(message: DeviceCommand.operationSuccess.rawValue, to: connection)
 
     case .syncPeripherals:
       // Wait for the next message which will contain peripherals data
@@ -227,6 +231,7 @@ final class ConnectionManager: NetworkConnectionManaging {
 
     default:
       print("Unsupported command")
+      lastReceivedCommand = nil
       // Send error response
       send(message: DeviceCommand.operationFailed.rawValue, to: connection)
     }

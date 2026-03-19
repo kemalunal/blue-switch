@@ -28,6 +28,10 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
   private enum Constants {
     static let queueLabel = "com.blueswitch.bluetooth"
     static let invalidRSSI = 127
+    static let handoffRetryCount = 4
+    static let handoffRetryDelay: TimeInterval = 0.75
+    static let connectionPollAttempts = 8
+    static let connectionPollInterval: TimeInterval = 0.5
   }
 
   // MARK: - Dependencies
@@ -41,10 +45,12 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
   @Published private(set) var peripherals: [BluetoothPeripheral] = [] {
     didSet {
       savePeripherals()
+      cachedConnectionStates = currentConnectionStates()
     }
   }
 
   @Published private(set) var discoveredPeripherals: [BluetoothPeripheral] = []
+  private var cachedConnectionStates: [String: Bool] = [:]
 
   // MARK: - Computed Properties
 
@@ -66,6 +72,7 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
 
   private init() {
     loadPeripherals()
+    cachedConnectionStates = currentConnectionStates()
     fetchConnectedPeripherals()
   }
 
@@ -77,8 +84,8 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
     guard validateBluetoothState() else { return }
     guard validateDeviceExists(peripheral) else { return }
 
-    var newPeripheral = peripheral
-    peripherals.append(newPeripheral)
+    peripherals.append(peripheral)
+    refreshPeripheralState()
   }
 
   /// Removes peripheral information from the system while maintaining it in the list
@@ -89,6 +96,7 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
 
     if !btDevice.isConnected() {
       print("Device is already disconnected: \(peripheral.name)")
+      refreshPeripheralState()
       return
     }
 
@@ -98,6 +106,7 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
     } else {
       print("Failed to remove device information: \(peripheral.name)")
     }
+    refreshPeripheralState()
   }
 
   /// Completely remove device from list
@@ -116,57 +125,86 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
 
     peripherals.removeAll { $0.id == peripheral.id }
     print("\(peripheral.name) has been removed from the list")
+    refreshPeripheralState()
   }
 
   func connectPeripheral(_ peripheral: BluetoothPeripheral) {
+    connectPeripheral(peripheral) { _ in }
+  }
+
+  func connectPeripheral(_ peripheral: BluetoothPeripheral, completion: @escaping (Bool) -> Void) {
+    connectPeripheral(
+      peripheral,
+      attempt: 1,
+      completion: completion
+    )
+  }
+
+  func connectPeripheralsForHandoff(
+    _ peripherals: [BluetoothPeripheral], completion: @escaping (Bool) -> Void
+  ) {
+    performSequentialOperation(on: peripherals, completion: completion) { peripheral, operationCompletion in
+      self.connectPeripheral(peripheral, completion: operationCompletion)
+    }
+  }
+
+  func disconnectPeripheralForHandoff(
+    _ peripheral: BluetoothPeripheral, completion: @escaping (Bool) -> Void
+  ) {
     bluetoothQueue.async { [weak self] in
       guard let self = self else { return }
+      print("Starting handoff disconnect for \(peripheral.name)")
 
-      // Get device and basic checks
-      guard let btDevice = IOBluetoothDevice(addressString: peripheral.id) else {
-        print("\(peripheral.name) not found")
+      guard self.validateBluetoothState() else {
+        self.finishBluetoothOperation(
+          success: false,
+          completion: completion
+        )
         return
       }
 
-      // Check Bluetooth system status
-      guard IOBluetoothHostController.default().powerState != kBluetoothHCIPowerStateOFF else {
-        print("Bluetooth is turned off")
+      guard let btDevice = self.getBluetoothDevice(for: peripheral) else {
+        self.finishBluetoothOperation(
+          success: false,
+          completion: completion
+        )
         return
       }
 
-      // Check if device is in range using RSSI value
-      let rssi = btDevice.rssi()
-      if rssi == Constants.invalidRSSI {  // 127 indicates invalid RSSI value
-        print("\(peripheral.name) is out of range or not responding")
+      if !btDevice.isConnected() {
+        print("\(peripheral.name) is already disconnected for handoff")
+        self.finishBluetoothOperation(success: true, completion: completion)
         return
       }
 
-      guard let devicePair = IOBluetoothDevicePair(device: btDevice) else {
-        print("Failed to initialize pairing for \(peripheral.name)")
+      let result = btDevice.closeConnection()
+      if result != kIOReturnSuccess {
+        print("Failed to disconnect \(peripheral.name) for handoff. Error code: \(result)")
+        self.finishBluetoothOperation(success: false, completion: completion)
         return
       }
 
-      devicePair.delegate = self
-      let pairResult = devicePair.start()
-
-      if pairResult == kIOReturnSuccess {
-        // Check actual connection status
-        let connectResult = btDevice.openConnection()
-        if connectResult == kIOReturnSuccess && btDevice.isConnected() {
-          DispatchQueue.main.async {
-            guard let index = self.peripherals.firstIndex(where: { $0.id == peripheral.id }) else {
-              return
-            }
-            var updatedPeripheral = peripheral
-            self.peripherals[index] = updatedPeripheral
-            print("Connected to \(peripheral.name)")
-          }
+      self.waitForPeripheralConnectionState(
+        peripheral,
+        expectedConnected: false,
+        attemptsRemaining: Constants.connectionPollAttempts
+      ) { disconnected in
+        if disconnected {
+          print("Completed handoff disconnect for \(peripheral.name)")
+          self.finishBluetoothOperation(success: true, completion: completion)
         } else {
-          print("Failed to connect to \(peripheral.name). Error code: \(connectResult)")
+          print("Timed out waiting for \(peripheral.name) to disconnect for handoff")
+          self.finishBluetoothOperation(success: false, completion: completion)
         }
-      } else {
-        print("Failed to start pairing with \(peripheral.name). Error code: \(pairResult)")
       }
+    }
+  }
+
+  func disconnectPeripheralsForHandoff(
+    _ peripherals: [BluetoothPeripheral], completion: @escaping (Bool) -> Void
+  ) {
+    performSequentialOperation(on: peripherals, completion: completion) { peripheral, operationCompletion in
+      self.disconnectPeripheralForHandoff(peripheral, completion: operationCompletion)
     }
   }
 
@@ -193,6 +231,7 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
     } else {
       print("Failed to disconnect from \(peripheral.name). Error code: \(result)")
     }
+    refreshPeripheralState()
   }
 
   func fetchConnectedPeripherals() {
@@ -255,6 +294,22 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
     print("Debug: Updated peripherals: \(peripherals.map { $0.name })")
 
     savePeripherals()
+    refreshPeripheralState()
+  }
+
+  func refreshPeripheralState() {
+    refreshRegisteredPeripheralState()
+    fetchConnectedPeripherals()
+  }
+
+  func refreshRegisteredPeripheralState() {
+    let currentStates = currentConnectionStates()
+    guard currentStates != cachedConnectionStates else { return }
+
+    cachedConnectionStates = currentStates
+    DispatchQueue.main.async {
+      self.objectWillChange.send()
+    }
   }
 
   // MARK: - Private Methods
@@ -271,6 +326,7 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
   private func loadPeripherals() {
     do {
       peripherals = try JSONDecoder().decode([BluetoothPeripheral].self, from: peripheralsData)
+      cachedConnectionStates = currentConnectionStates()
     } catch {
       print("Failed to load peripherals: \(error)")
     }
@@ -317,6 +373,180 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
       return nil
     }
     return device
+  }
+
+  private func connectPeripheral(
+    _ peripheral: BluetoothPeripheral,
+    attempt: Int,
+    completion: @escaping (Bool) -> Void
+  ) {
+    bluetoothQueue.async { [weak self] in
+      guard let self = self else { return }
+
+      print("Attempt \(attempt) to connect \(peripheral.name)")
+
+      guard self.validateBluetoothState() else {
+        self.finishBluetoothOperation(success: false, completion: completion)
+        return
+      }
+
+      guard let btDevice = self.getBluetoothDevice(for: peripheral) else {
+        self.finishBluetoothOperation(success: false, completion: completion)
+        return
+      }
+
+      if btDevice.isConnected() {
+        print("\(peripheral.name) is already connected")
+        self.finishBluetoothOperation(success: true, completion: completion)
+        return
+      }
+
+      let rssi = btDevice.rssi()
+      if rssi == Constants.invalidRSSI {
+        print("\(peripheral.name) is out of range or not responding")
+        self.retryPeripheralConnectionIfNeeded(
+          peripheral,
+          attempt: attempt,
+          completion: completion
+        )
+        return
+      }
+
+      if attempt == 1, let devicePair = IOBluetoothDevicePair(device: btDevice) {
+        devicePair.delegate = self
+        let pairResult = devicePair.start()
+        if pairResult != kIOReturnSuccess {
+          print("Pairing returned \(pairResult) for \(peripheral.name); continuing with connection attempt")
+        }
+      }
+
+      let connectResult = btDevice.openConnection()
+      if connectResult != kIOReturnSuccess {
+        print("openConnection failed for \(peripheral.name). Error code: \(connectResult)")
+        self.retryPeripheralConnectionIfNeeded(
+          peripheral,
+          attempt: attempt,
+          completion: completion
+        )
+        return
+      }
+
+      self.waitForPeripheralConnectionState(
+        peripheral,
+        expectedConnected: true,
+        attemptsRemaining: Constants.connectionPollAttempts
+      ) { connected in
+        if connected {
+          print("Connected to \(peripheral.name)")
+          self.finishBluetoothOperation(success: true, completion: completion)
+        } else {
+          print("Timed out waiting for \(peripheral.name) to connect")
+          self.retryPeripheralConnectionIfNeeded(
+            peripheral,
+            attempt: attempt,
+            completion: completion
+          )
+        }
+      }
+    }
+  }
+
+  private func retryPeripheralConnectionIfNeeded(
+    _ peripheral: BluetoothPeripheral,
+    attempt: Int,
+    completion: @escaping (Bool) -> Void
+  ) {
+    guard attempt < Constants.handoffRetryCount else {
+      finishBluetoothOperation(success: false, completion: completion)
+      return
+    }
+
+    let nextAttempt = attempt + 1
+    print("Retrying connection for \(peripheral.name) in \(Constants.handoffRetryDelay)s")
+    bluetoothQueue.asyncAfter(deadline: .now() + Constants.handoffRetryDelay) { [weak self] in
+      self?.connectPeripheral(peripheral, attempt: nextAttempt, completion: completion)
+    }
+  }
+
+  private func waitForPeripheralConnectionState(
+    _ peripheral: BluetoothPeripheral,
+    expectedConnected: Bool,
+    attemptsRemaining: Int,
+    completion: @escaping (Bool) -> Void
+  ) {
+    guard attemptsRemaining > 0 else {
+      completion(false)
+      return
+    }
+
+    bluetoothQueue.asyncAfter(deadline: .now() + Constants.connectionPollInterval) { [weak self] in
+      guard let self = self else {
+        completion(false)
+        return
+      }
+
+      let isConnected = IOBluetoothDevice(addressString: peripheral.id)?.isConnected() ?? false
+      if isConnected == expectedConnected {
+        completion(true)
+      } else {
+        self.waitForPeripheralConnectionState(
+          peripheral,
+          expectedConnected: expectedConnected,
+          attemptsRemaining: attemptsRemaining - 1,
+          completion: completion
+        )
+      }
+    }
+  }
+
+  private func finishBluetoothOperation(success: Bool, completion: @escaping (Bool) -> Void) {
+    DispatchQueue.main.async {
+      self.refreshPeripheralState()
+      completion(success)
+    }
+  }
+
+  private func performSequentialOperation(
+    on peripherals: [BluetoothPeripheral],
+    completion: @escaping (Bool) -> Void,
+    operation: @escaping (BluetoothPeripheral, @escaping (Bool) -> Void) -> Void
+  ) {
+    guard !peripherals.isEmpty else {
+      DispatchQueue.main.async {
+        completion(true)
+      }
+      return
+    }
+
+    func run(index: Int) {
+      guard index < peripherals.count else {
+        DispatchQueue.main.async {
+          completion(true)
+        }
+        return
+      }
+
+      operation(peripherals[index]) { success in
+        if success {
+          run(index: index + 1)
+        } else {
+          DispatchQueue.main.async {
+            completion(false)
+          }
+        }
+      }
+    }
+
+    run(index: 0)
+  }
+
+  private func currentConnectionStates() -> [String: Bool] {
+    Dictionary(
+      uniqueKeysWithValues: peripherals.map { peripheral in
+        let isConnected = IOBluetoothDevice(addressString: peripheral.id)?.isConnected() ?? false
+        return (peripheral.id, isConnected)
+      }
+    )
   }
 }
 

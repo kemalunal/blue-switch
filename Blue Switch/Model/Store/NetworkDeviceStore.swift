@@ -211,45 +211,73 @@ extension NetworkDeviceStore {
       port: NWEndpoint.Port(integerLiteral: UInt16(device.port)),
       using: .tcp
     )
+    let queue = DispatchQueue(label: "com.blueswitch.command", qos: .userInitiated)
+    let timeoutSeconds: TimeInterval = 12
+    var didComplete = false
+
+    func finish(_ success: Bool) {
+      guard !didComplete else { return }
+      didComplete = true
+      connection.cancel()
+      DispatchQueue.main.async {
+        completion(success)
+      }
+    }
+
+    func receiveResponse() {
+      connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) {
+        data, _, isComplete, error in
+        if let error = error {
+          print("Failed to receive response for command \(command.rawValue): \(error)")
+          finish(false)
+          return
+        }
+
+        if let data = data, !data.isEmpty,
+          let response = String(data: data, encoding: .utf8),
+          let responseCommand = DeviceCommand(rawValue: response)
+        {
+          print("Received response \(responseCommand.rawValue) for command \(command.rawValue)")
+          finish(responseCommand == .operationSuccess)
+          return
+        }
+
+        if isComplete {
+          print("Connection completed without a valid response for command \(command.rawValue)")
+          finish(false)
+        } else {
+          receiveResponse()
+        }
+      }
+    }
 
     connection.stateUpdateHandler = { state in
       switch state {
       case .ready:
-        // Send command
-        let message = command.rawValue
-        self.connectionManager.send(message: message, to: connection)
+        print("Sending command \(command.rawValue) to \(device.name)")
+        self.connectionManager.send(message: command.rawValue, to: connection)
+        receiveResponse()
       case .failed(let error):
-        print("Command execution failed: \(error)")
-        completion(false)
+        print("Command execution failed for \(command.rawValue): \(error)")
+        finish(false)
       case .cancelled:
-        completion(false)
+        if !didComplete {
+          print("Command \(command.rawValue) was cancelled before completion")
+          finish(false)
+        }
       default:
         break
       }
     }
 
-    connection.receiveMessage { data, _, isComplete, error in
-      if let error = error {
-        print("Failed to receive response: \(error)")
-        completion(false)
-        return
-      }
-
-      if let data = data,
-        let response = String(data: data, encoding: .utf8),
-        let responseCommand = DeviceCommand(rawValue: response)
-      {
-        completion(responseCommand == .operationSuccess)
-      } else {
-        completion(false)
-      }
-
-      if isComplete {
-        connection.cancel()
+    queue.asyncAfter(deadline: .now() + timeoutSeconds) {
+      if !didComplete {
+        print("Command \(command.rawValue) timed out")
+        finish(false)
       }
     }
 
-    connection.start(queue: .global())
+    connection.start(queue: queue)
   }
 }
 

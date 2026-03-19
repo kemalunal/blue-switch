@@ -12,7 +12,7 @@ jobs:
   format:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install swift-format
         run: brew install swift-format
@@ -29,7 +29,7 @@ jobs:
 
       - name: Comment PR
         if: steps.format.outputs.format_has_issues == 'true'
-        uses: actions/github-script@v6
+        uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
