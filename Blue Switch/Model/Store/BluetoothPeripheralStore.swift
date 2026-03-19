@@ -18,7 +18,7 @@ protocol BluetoothPeripheralManageable {
 }
 
 /// Manages the state and operations of Bluetooth peripherals
-final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManageable {
+final class BluetoothPeripheralStore: NSObject, ObservableObject, BluetoothPeripheralManageable {
   // MARK: - Singleton
 
   static let shared = BluetoothPeripheralStore()
@@ -373,28 +373,17 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
 }
 
 extension BluetoothPeripheralStore: IOBluetoothDevicePairDelegate {
-  func devicePairingFinished(_ sender: IOBluetoothDevicePair!, error: IOReturn) {
+  func devicePairingFinished(_ sender: Any!, error: IOReturn) {
     print("devicePairingFinished with error: \(error)")
     pairingCompletion?(error)
   }
 
-  func devicePairingPINCodeRequest(_ sender: IOBluetoothDevicePair!) {
-    print("devicePairingPINCodeRequest")
-    sender.replyPINCode(4, pinCode: "0000") // Fallback
-  }
-
-  func devicePairingUserPasskeyNotification(
-    _ sender: IOBluetoothDevicePair!, passkey: BluetoothKeyboardReturnType
-  ) {
-    print("devicePairingUserPasskeyNotification")
-  }
-  
-  func devicePairingUserConfirmationRequest(_ sender: IOBluetoothDevicePair!, numericValue: BluetoothNumericValue) {
+  func devicePairingUserConfirmationRequest(_ sender: Any!, numericValue: BluetoothNumericValue) {
     print("devicePairingUserConfirmationRequest - Auto-accepting pairing seamlessly!")
-    sender.replyUserConfirmation(true)
+    (sender as? IOBluetoothDevicePair)?.replyUserConfirmation(true)
   }
   
-  func devicePairingConnecting(_ sender: IOBluetoothDevicePair!) {
+  func devicePairingConnecting(_ sender: Any!) {
     print("devicePairingConnecting...")
   }
 }
