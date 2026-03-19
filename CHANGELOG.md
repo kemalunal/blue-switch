@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/kemalunal/blue-switch/compare/v1.0.0...v1.0.1) (2026-03-19)
+
+
+### Bug Fixes
+
+* reduce flaky device handoff ([c305758](https://github.com/kemalunal/blue-switch/commit/c305758726ed58eb0f4f645af80049778cdc4292))
+
 # 1.0.0 (2026-02-28)
 
 
