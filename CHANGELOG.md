@@ -1,3 +1,10 @@
+## [1.0.3](https://github.com/kemalunal/blue-switch/compare/v1.0.2...v1.0.3) (2026-03-19)
+
+
+### Bug Fixes
+
+* fail remote handoff when no peripherals exist ([539eba6](https://github.com/kemalunal/blue-switch/commit/539eba67cf155afdad80ab65c787efeda341b0c4))
+
 ## [1.0.2](https://github.com/kemalunal/blue-switch/compare/v1.0.1...v1.0.2) (2026-03-19)
 
 
