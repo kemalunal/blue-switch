@@ -30,8 +30,8 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
     static let invalidRSSI = 127
     static let handoffRetryCount = 5
     static let handoffRetryDelay: TimeInterval = 1.25
-    static let connectionPollAttempts = 12
-    static let connectionPollInterval: TimeInterval = 0.5
+    static let connectionPollAttempts = 10
+    static let connectionPollInterval: TimeInterval = 1.0
     static let stableStateConfirmations = 3
   }
 
@@ -178,11 +178,20 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
         return
       }
 
-      let result = btDevice.closeConnection()
-      if result != kIOReturnSuccess {
-        print("Failed to disconnect \(peripheral.name) for handoff. Error code: \(result)")
-        self.finishBluetoothOperation(success: false, completion: completion)
-        return
+      // Use 'remove' selector instead of closeConnection() to prevent
+      // macOS auto-reconnect. closeConnection() only drops the active link
+      // but macOS still sees a nearby paired HID device and immediately
+      // reconnects, causing the connect/disconnect flapping loop.
+      if btDevice.responds(to: Selector(("remove"))) {
+        btDevice.perform(Selector(("remove")))
+        print("Device removed for handoff disconnect: \(peripheral.name)")
+      } else {
+        let result = btDevice.closeConnection()
+        if result != kIOReturnSuccess {
+          print("Failed to disconnect \(peripheral.name) for handoff. Error code: \(result)")
+          self.finishBluetoothOperation(success: false, completion: completion)
+          return
+        }
       }
 
       self.waitForPeripheralConnectionState(

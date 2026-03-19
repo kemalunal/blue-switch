@@ -217,6 +217,12 @@ final class ConnectionManager: NetworkConnectionManaging {
         guard let self = self else { return }
         let response = success ? DeviceCommand.operationSuccess : DeviceCommand.operationFailed
         print("CONNECT_ALL completed with success=\(success)")
+        if success {
+          NotificationManager.showNotification(
+            title: "Peripherals Connected",
+            body: "All peripherals are now connected to this Mac"
+          )
+        }
         self.lastReceivedCommand = nil
         self.send(message: response.rawValue, to: connection)
       }
@@ -227,6 +233,12 @@ final class ConnectionManager: NetworkConnectionManaging {
         guard let self = self else { return }
         let response = success ? DeviceCommand.operationSuccess : DeviceCommand.operationFailed
         print("UNREGISTER_ALL completed with success=\(success)")
+        if success {
+          NotificationManager.showNotification(
+            title: "Peripherals Disconnected",
+            body: "All peripherals have been released from this Mac"
+          )
+        }
         self.lastReceivedCommand = nil
         self.send(message: response.rawValue, to: connection)
       }

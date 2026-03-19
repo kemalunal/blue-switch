@@ -16,7 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   // MARK: - Constants
 
   private let windowSize = NSSize(width: 480, height: 300)
-  private let handoffSettleDelay: TimeInterval = 1.5
+  private let handoffSettleDelay: TimeInterval = 3.0
   private var isSwitchInProgress = false
 
   // MARK: - Lifecycle Methods
@@ -119,6 +119,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.networkStore.executeCommand(.connectAll) { success in
                   if success {
                     print("Remote connect completed successfully on \(targetDevice.name)")
+                    NotificationManager.showNotification(
+                      title: "Handoff Complete",
+                      body: "Peripherals moved to \(targetDevice.name)"
+                    )
                   } else {
                     NotificationManager.showNotification(
                       title: "Error",
@@ -144,7 +148,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 print("Remote disconnect completed. Connecting peripherals locally.")
                 self.bluetoothStore.connectPeripheralsForHandoff(self.bluetoothStore.peripherals) {
                   connectSuccess in
-                  if !connectSuccess {
+                  if connectSuccess {
+                    NotificationManager.showNotification(
+                      title: "Handoff Complete",
+                      body: "Peripherals connected to this Mac"
+                    )
+                  } else {
                     NotificationManager.showNotification(
                       title: "Error",
                       body: "Failed to connect peripherals on this Mac"
@@ -196,37 +205,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     DispatchQueue.main.asyncAfter(deadline: .now() + handoffSettleDelay, execute: action)
   }
 
-  /// Waits for all devices to disconnect with a timeout
-  /// - Parameter completion: Called with true if all devices disconnected, false if timeout occurred
-  private func waitForDisconnection(completion: @escaping (Bool) -> Void) {
-    // Check disconnection status up to 5 times at 0.5 second intervals
-    var attempts = 0
-    let maxAttempts = 5
-
-    func check() {
-      attempts += 1
-
-      // Check if all devices are disconnected
-      let allDisconnected = bluetoothStore.checkActualConnectionStatus() == .allDisconnected
-
-      if allDisconnected {
-        completion(true)
-      } else if attempts < maxAttempts {
-        // If attempts remaining, check again after 0.5 seconds
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-          check()
-        }
-      } else {
-        // Treat as failure if maximum attempts exceeded
-        completion(false)
-      }
-    }
-
-    // Start first check after 0.5 seconds
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-      check()
-    }
-  }
 
   // MARK: - Settings Management
 
