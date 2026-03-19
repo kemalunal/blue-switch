@@ -28,12 +28,12 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
   private enum Constants {
     static let queueLabel = "com.blueswitch.bluetooth"
     static let invalidRSSI: Int32 = 127
-    static let handoffRetryCount = 3
-    static let handoffRetryDelay: TimeInterval = 2.0
+    static let handoffRetryCount = 10
+    static let handoffRetryDelay: TimeInterval = 1.0
     static let connectionPollAttempts = 10
     static let connectionPollInterval: TimeInterval = 1.0
     static let stableStateConfirmations = 3
-    static let forceDisconnectAttempts = 3
+    static let forceDisconnectAttempts = 6
   }
 
   // MARK: - Dependencies
@@ -557,8 +557,8 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
       return
     }
 
-    // Wait 2 seconds then check if macOS auto-reconnected
-    bluetoothQueue.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+    // Wait 1 second then check if macOS auto-reconnected
+    bluetoothQueue.asyncAfter(deadline: .now() + 1.0) { [weak self] in
       guard let self = self else {
         completion(false)
         return
