@@ -53,6 +53,10 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
 
   @Published private(set) var discoveredPeripherals: [BluetoothPeripheral] = []
   private var cachedConnectionStates: [String: Bool] = [:]
+  
+  // Storage for async pairing delegation
+  private var currentDevicePair: IOBluetoothDevicePair?
+  private var pairingCompletion: ((IOReturn) -> Void)?
 
   // MARK: - Computed Properties
 
@@ -366,7 +370,36 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
     }
     return device
   }
+}
 
+extension BluetoothPeripheralStore: IOBluetoothDevicePairDelegate {
+  func devicePairingFinished(_ sender: IOBluetoothDevicePair!, error: IOReturn) {
+    print("devicePairingFinished with error: \(error)")
+    pairingCompletion?(error)
+  }
+
+  func devicePairingPINCodeRequest(_ sender: IOBluetoothDevicePair!) {
+    print("devicePairingPINCodeRequest")
+    sender.replyPINCode(4, pinCode: "0000") // Fallback
+  }
+
+  func devicePairingUserPasskeyNotification(
+    _ sender: IOBluetoothDevicePair!, passkey: BluetoothKeyboardReturnType
+  ) {
+    print("devicePairingUserPasskeyNotification")
+  }
+  
+  func devicePairingUserConfirmationRequest(_ sender: IOBluetoothDevicePair!, numericValue: BluetoothNumericValue) {
+    print("devicePairingUserConfirmationRequest - Auto-accepting pairing seamlessly!")
+    sender.replyUserConfirmation(true)
+  }
+  
+  func devicePairingConnecting(_ sender: IOBluetoothDevicePair!) {
+    print("devicePairingConnecting...")
+  }
+}
+
+extension BluetoothPeripheralStore {
   private func connectPeripheral(
     _ peripheral: BluetoothPeripheral,
     attempt: Int,
@@ -404,12 +437,36 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
         }
       }
 
-      if !targetDevice.isPaired(), let devicePair = IOBluetoothDevicePair(device: targetDevice) {
-        print("Starting pairing for \(peripheral.name)...")
-        devicePair.delegate = self
-        let pairResult = devicePair.start()
-        if pairResult != kIOReturnSuccess {
-          print("Pairing returned \(pairResult) for \(peripheral.name); continuing with connection attempt")
+      if !targetDevice.isPaired() {
+        print("Spawning pairing on Main Thread to ensure RunLoop delegate callbacks...")
+        let pairingSemaphore = DispatchSemaphore(value: 0)
+        
+        DispatchQueue.main.async {
+          if let devicePair = IOBluetoothDevicePair(device: targetDevice) {
+            self.currentDevicePair = devicePair
+            devicePair.delegate = self
+            
+            self.pairingCompletion = { result in
+              print("Pairing finished callback received. Error code: \(result)")
+              pairingSemaphore.signal()
+            }
+            
+            let pairResult = devicePair.start()
+            if pairResult != kIOReturnSuccess {
+              print("Pairing initialization failed for \(peripheral.name)")
+              pairingSemaphore.signal()
+            }
+          } else {
+            pairingSemaphore.signal()
+          }
+        }
+        
+        // Wait for devicePairingFinished delegate callback
+        _ = pairingSemaphore.wait(timeout: .now() + 15.0)
+        
+        DispatchQueue.main.async {
+          self.currentDevicePair = nil
+          self.pairingCompletion = nil
         }
       }
 

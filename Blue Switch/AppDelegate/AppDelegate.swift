@@ -17,7 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private let windowSize = NSSize(width: 480, height: 300)
   private let handoffSettleDelay: TimeInterval = 3.0
   private var isSwitchInProgress = false
-  static let buildVersion = "20260319-v9"
+  static let buildVersion = "20260319-v10"
 
   // MARK: - Lifecycle Methods
 
