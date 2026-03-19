@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/kemalunal/blue-switch/compare/v1.0.1...v1.0.2) (2026-03-19)
+
+
+### Bug Fixes
+
+* stabilize bluetooth handoff flow ([42b5876](https://github.com/kemalunal/blue-switch/commit/42b5876c2112a318f23bbb155cde7f7cc8b7a044))
+
 ## [1.0.1](https://github.com/kemalunal/blue-switch/compare/v1.0.0...v1.0.1) (2026-03-19)
 
 
