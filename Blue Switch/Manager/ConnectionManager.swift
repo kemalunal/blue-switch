@@ -206,6 +206,12 @@ final class ConnectionManager: NetworkConnectionManaging {
       // Wait for the next message which will contain notification data
       break
     case .connectAll:
+      guard !bluetoothStore.peripherals.isEmpty else {
+        print("CONNECT_ALL failed because no peripherals are registered on this Mac")
+        lastReceivedCommand = nil
+        send(message: DeviceCommand.operationFailed.rawValue, to: connection)
+        return
+      }
       print("Received CONNECT_ALL command")
       bluetoothStore.connectPeripheralsForHandoff(bluetoothStore.peripherals) { [weak self] success in
         guard let self = self else { return }
