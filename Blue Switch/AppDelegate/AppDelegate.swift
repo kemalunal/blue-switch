@@ -16,7 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   // MARK: - Constants
 
   private let windowSize = NSSize(width: 480, height: 300)
-  private let handoffSettleDelay: TimeInterval = 0.75
+  private let handoffSettleDelay: TimeInterval = 1.5
   private var isSwitchInProgress = false
 
   // MARK: - Lifecycle Methods
