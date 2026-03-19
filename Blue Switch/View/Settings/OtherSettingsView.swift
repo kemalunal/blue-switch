@@ -15,6 +15,12 @@ struct OtherSettingsView: View {
   private var formContent: some View {
     Form {
       Section {
+        HStack {
+          Text("Build Version")
+          Spacer()
+          Text(AppDelegate.buildVersion)
+            .foregroundColor(.secondary)
+        }
         SettingsRowView(title: "License Information", action: showLicenseInfo)
       }
     }
