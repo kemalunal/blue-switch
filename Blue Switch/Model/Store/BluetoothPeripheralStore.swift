@@ -179,47 +179,17 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
         return
       }
 
-      let result = btDevice.closeConnection()
-      if result != kIOReturnSuccess {
-        print("Failed to disconnect \(peripheral.name) for handoff. Error code: \(result)")
-        self.finishBluetoothOperation(success: false, completion: completion)
-        return
-      }
-
-      print("Successfully initiated closeConnection for \(peripheral.name). Starting shield and allowing handoff to proceed.")
-      
-      // Immediately allow the handoff to proceed to the other Mac
-      self.finishBluetoothOperation(success: true, completion: completion)
-      
-      // Start a 30-second background shield to actively repel auto-reconnects
-      self.shieldPeripheral(peripheral, duration: 30.0)
-    }
-  }
-
-  /// Actively repels a peripheral for a given duration by repeatedly closing its connection.
-  /// This prevents macOS from stealing the device back while the other Mac tries to connect.
-  private func shieldPeripheral(_ peripheral: BluetoothPeripheral, duration: TimeInterval) {
-    let endTime = Date().addingTimeInterval(duration)
-    
-    func checkAndDrop() {
-      guard Date() < endTime else {
-        print("Shield expired for \(peripheral.name)")
-        return
-      }
-      
-      if let btDevice = IOBluetoothDevice(addressString: peripheral.id), btDevice.isConnected() {
-        print("Shield active: \(peripheral.name) auto-reconnected. Dropping connection.")
+      if btDevice.responds(to: Selector("remove")) {
+        btDevice.perform(Selector("remove"))
+        print("Successfully UNPAIRED \(peripheral.name).")
+      } else {
         btDevice.closeConnection()
+        print("Fallback: closeConnection for \(peripheral.name) because remove selector was unavailable.")
       }
-      
-      // Check again in 0.5 seconds
-      bluetoothQueue.asyncAfter(deadline: .now() + 0.5) {
-        checkAndDrop()
-      }
+
+      print("Allowing handoff to proceed to the other Mac.")
+      self.finishBluetoothOperation(success: true, completion: completion)
     }
-    
-    print("Shield activated for \(peripheral.name) for \(duration) seconds.")
-    checkAndDrop()
   }
 
   func disconnectPeripheralsForHandoff(
@@ -412,28 +382,27 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
         return
       }
 
-      guard let btDevice = self.getBluetoothDevice(for: peripheral) else {
-        self.finishBluetoothOperation(success: false, completion: completion)
-        return
+      var targetDevice = btDevice
+
+      if attempt == 1 && targetDevice.isPaired() {
+        print("\(peripheral.name) has a STALE pairing (it was paired in a previous session). Unpairing it locally first...")
+        if targetDevice.responds(to: Selector("remove")) {
+          targetDevice.perform(Selector("remove"))
+          Thread.sleep(forTimeInterval: 0.5)
+          targetDevice = IOBluetoothDevice(addressString: peripheral.id) ?? targetDevice
+        }
       }
 
-      if btDevice.isConnected() {
-        print("\(peripheral.name) is already connected")
-        self.finishBluetoothOperation(success: true, completion: completion)
-        return
-      }
-
-      if !btDevice.isPaired(), let devicePair = IOBluetoothDevicePair(device: btDevice) {
+      if !targetDevice.isPaired(), let devicePair = IOBluetoothDevicePair(device: targetDevice) {
+        print("Starting pairing for \(peripheral.name)...")
         devicePair.delegate = self
         let pairResult = devicePair.start()
         if pairResult != kIOReturnSuccess {
           print("Pairing returned \(pairResult) for \(peripheral.name); continuing with connection attempt")
         }
-      } else if btDevice.isPaired() {
-        print("\(peripheral.name) is already paired. Skipping pairing step.")
       }
 
-      let connectResult = btDevice.openConnection()
+      let connectResult = targetDevice.openConnection()
       if connectResult != kIOReturnSuccess {
         print("openConnection failed for \(peripheral.name). Error code: \(connectResult)")
         self.retryPeripheralConnectionIfNeeded(
