@@ -126,10 +126,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               )
             }
           }
-          // 2. Execugte connection of all devices
-          self.bluetoothStore.peripherals.forEach { peripheral in
-            self.bluetoothStore.connectPeripheral(peripheral)
-          }
         case .partial:
           NotificationManager.showNotification(
             title: "Warning",
@@ -164,7 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       attempts += 1
 
       // Check if all devices are disconnected
-      let allDisconnected = !bluetoothStore.isAllDevicesConnected
+      let allDisconnected = bluetoothStore.checkActualConnectionStatus() == .allDisconnected
 
       if allDisconnected {
         completion(true)

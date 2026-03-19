@@ -323,7 +323,7 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
 extension BluetoothPeripheralStore {
   /// Checks the actual connection status of all registered peripherals using IOBluetoothDevice
   /// - Returns: ConnectionStatus indicating the current state
-  enum ConnectionStatus {
+  enum ConnectionStatus: Equatable {
     case allConnected
     case allDisconnected
     case partial
