@@ -76,7 +76,8 @@ final class BluetoothPeripheralStore: NSObject, ObservableObject, BluetoothPerip
 
   // MARK: - Initialization
 
-  private init() {
+  private override init() {
+    super.init()
     loadPeripherals()
     cachedConnectionStates = currentConnectionStates()
     fetchConnectedPeripherals()
