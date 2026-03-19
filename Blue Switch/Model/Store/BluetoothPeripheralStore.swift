@@ -382,6 +382,17 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
         return
       }
 
+      guard let btDevice = self.getBluetoothDevice(for: peripheral) else {
+        self.finishBluetoothOperation(success: false, completion: completion)
+        return
+      }
+
+      if btDevice.isConnected() {
+        print("\(peripheral.name) is already connected")
+        self.finishBluetoothOperation(success: true, completion: completion)
+        return
+      }
+
       var targetDevice = btDevice
 
       if attempt == 1 && targetDevice.isPaired() {
