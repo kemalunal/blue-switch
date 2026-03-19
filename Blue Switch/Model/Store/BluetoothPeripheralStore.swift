@@ -186,25 +186,40 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
         return
       }
 
-      // Wait for disconnect, then use force-disconnect stability loop
-      // to fight macOS auto-reconnect without unpacking the device.
-      self.waitForPeripheralConnectionState(
-        peripheral,
-        expectedConnected: false,
-        attemptsRemaining: Constants.connectionPollAttempts
-      ) { disconnected in
-        if disconnected {
-          self.forceStableDisconnect(
-            peripheral,
-            attemptsRemaining: Constants.forceDisconnectAttempts,
-            completion: completion
-          )
-        } else {
-          print("Timed out waiting for \(peripheral.name) to disconnect for handoff")
-          self.finishBluetoothOperation(success: false, completion: completion)
-        }
+      print("Successfully initiated closeConnection for \(peripheral.name). Starting shield and allowing handoff to proceed.")
+      
+      // Immediately allow the handoff to proceed to the other Mac
+      self.finishBluetoothOperation(success: true, completion: completion)
+      
+      // Start a 30-second background shield to actively repel auto-reconnects
+      self.shieldPeripheral(peripheral, duration: 30.0)
+    }
+  }
+
+  /// Actively repels a peripheral for a given duration by repeatedly closing its connection.
+  /// This prevents macOS from stealing the device back while the other Mac tries to connect.
+  private func shieldPeripheral(_ peripheral: BluetoothPeripheral, duration: TimeInterval) {
+    let endTime = Date().addingTimeInterval(duration)
+    
+    func checkAndDrop() {
+      guard Date() < endTime else {
+        print("Shield expired for \(peripheral.name)")
+        return
+      }
+      
+      if let btDevice = IOBluetoothDevice(addressString: peripheral.id), btDevice.isConnected() {
+        print("Shield active: \(peripheral.name) auto-reconnected. Dropping connection.")
+        btDevice.closeConnection()
+      }
+      
+      // Check again in 0.5 seconds
+      bluetoothQueue.asyncAfter(deadline: .now() + 0.5) {
+        checkAndDrop()
       }
     }
+    
+    print("Shield activated for \(peripheral.name) for \(duration) seconds.")
+    checkAndDrop()
   }
 
   func disconnectPeripheralsForHandoff(
@@ -539,59 +554,6 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
         )
       } else {
         completion(false)
-      }
-    }
-  }
-
-  /// Ensures the peripheral stays disconnected by fighting macOS auto-reconnect.
-  /// After each wait period, if the device reconnected we force-close it again.
-  /// This exhausts the BT stack's auto-reconnect attempts without unpacking the device.
-  private func forceStableDisconnect(
-    _ peripheral: BluetoothPeripheral,
-    attemptsRemaining: Int,
-    completion: @escaping (Bool) -> Void
-  ) {
-    guard attemptsRemaining > 0 else {
-      print("\(peripheral.name) keeps reconnecting after all force-disconnect attempts")
-      finishBluetoothOperation(success: false, completion: completion)
-      return
-    }
-
-    // Wait 1 second then check if macOS auto-reconnected
-    bluetoothQueue.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-      guard let self = self else {
-        completion(false)
-        return
-      }
-
-      let isConnected = IOBluetoothDevice(addressString: peripheral.id)?.isConnected() ?? false
-      if isConnected {
-        // macOS auto-reconnected — force close again
-        print("\(peripheral.name) auto-reconnected, force-closing (attempt \(Constants.forceDisconnectAttempts - attemptsRemaining + 1))")
-        if let btDevice = IOBluetoothDevice(addressString: peripheral.id) {
-          btDevice.closeConnection()
-        }
-        // Wait for it to actually disconnect, then check again
-        self.waitForPeripheralConnectionState(
-          peripheral,
-          expectedConnected: false,
-          attemptsRemaining: 5
-        ) { disconnected in
-          if disconnected {
-            self.forceStableDisconnect(
-              peripheral,
-              attemptsRemaining: attemptsRemaining - 1,
-              completion: completion
-            )
-          } else {
-            print("\(peripheral.name) refused to disconnect")
-            self.finishBluetoothOperation(success: false, completion: completion)
-          }
-        }
-      } else {
-        // Still disconnected — success!
-        print("Completed handoff disconnect for \(peripheral.name) (stable)")
-        self.finishBluetoothOperation(success: true, completion: completion)
       }
     }
   }
