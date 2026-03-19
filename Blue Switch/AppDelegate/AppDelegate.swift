@@ -18,10 +18,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private let windowSize = NSSize(width: 480, height: 300)
   private let handoffSettleDelay: TimeInterval = 3.0
   private var isSwitchInProgress = false
+  static let buildVersion = "20260319-v2"
 
   // MARK: - Lifecycle Methods
 
   func applicationDidFinishLaunching(_ notification: Notification) {
+    print("Blue Switch build: \(AppDelegate.buildVersion)")
     setupNotifications()
     setupBluetooth()
     setupStatusBar()
@@ -228,7 +230,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
 
     window.center()
-    window.title = "Settings"
+    window.title = "Settings — Build \(AppDelegate.buildVersion)"
     window.contentView = NSHostingView(rootView: SettingsView())
 
     return window
