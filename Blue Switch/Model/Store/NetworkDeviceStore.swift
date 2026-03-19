@@ -212,7 +212,7 @@ extension NetworkDeviceStore {
       using: .tcp
     )
     let queue = DispatchQueue(label: "com.blueswitch.command", qos: .userInitiated)
-    let timeoutSeconds: TimeInterval = 12
+    let timeoutSeconds: TimeInterval = 30
     var didComplete = false
 
     func finish(_ success: Bool) {

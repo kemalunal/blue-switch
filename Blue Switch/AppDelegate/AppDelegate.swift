@@ -12,13 +12,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private var statusItem: NSStatusItem!
   private var settingsWindowController: NSWindowController?
-
   // MARK: - Constants
 
   private let windowSize = NSSize(width: 480, height: 300)
   private let handoffSettleDelay: TimeInterval = 3.0
   private var isSwitchInProgress = false
-  static let buildVersion = "20260319-v2"
+  static let buildVersion = "20260319-v3"
 
   // MARK: - Lifecycle Methods
 

@@ -27,9 +27,9 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
 
   private enum Constants {
     static let queueLabel = "com.blueswitch.bluetooth"
-    static let invalidRSSI = 127
-    static let handoffRetryCount = 5
-    static let handoffRetryDelay: TimeInterval = 1.25
+    static let invalidRSSI: Int32 = 127
+    static let handoffRetryCount = 3
+    static let handoffRetryDelay: TimeInterval = 2.0
     static let connectionPollAttempts = 10
     static let connectionPollInterval: TimeInterval = 1.0
     static let stableStateConfirmations = 3
@@ -405,17 +405,6 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
       if btDevice.isConnected() {
         print("\(peripheral.name) is already connected")
         self.finishBluetoothOperation(success: true, completion: completion)
-        return
-      }
-
-      let rssi = btDevice.rssi()
-      if rssi == Constants.invalidRSSI {
-        print("\(peripheral.name) is out of range or not responding")
-        self.retryPeripheralConnectionIfNeeded(
-          peripheral,
-          attempt: attempt,
-          completion: completion
-        )
         return
       }
 
