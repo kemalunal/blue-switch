@@ -33,7 +33,7 @@ final class BluetoothPeripheralStore: ObservableObject, BluetoothPeripheralManag
     static let connectionPollAttempts = 10
     static let connectionPollInterval: TimeInterval = 1.0
     static let stableStateConfirmations = 3
-    static let forceDisconnectAttempts = 6
+    static let forceDisconnectAttempts = 60
   }
 
   // MARK: - Dependencies
